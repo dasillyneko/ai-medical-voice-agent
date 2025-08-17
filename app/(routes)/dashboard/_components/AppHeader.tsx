@@ -1,10 +1,11 @@
 import React from 'react'
 import Image from 'next/image';
 import { UserButton } from '@clerk/nextjs';
+import Link from 'next/link';
 
 const menuOptions= [
-    { id:1, name: 'Home', href: '/home' },
-    { id:2, name: 'History', href: '/history' },
+    { id:1, name: 'Home', href: '/dashboard' }, // Changed to dashboard since that's likely your home
+    { id:2, name: 'History', href: '/dashboard/history'},
     { id:3, name: 'Pricing', href: '/pricing' },
     { id:4, name: 'Profile', href: '/profile' },
 ];
@@ -15,9 +16,9 @@ function AppHeader() {
         <Image src="/logo.svg" alt="Logo" width={36} height={18} /> 
         <div className="hidden md:flex items-center gap-12">
             {menuOptions.map((option,index) => (
-                <div key={index}>
+                <Link key={index} href={option.href}>
                     <h2 className='hover:font-bold cursor-pointer transition-all'>{option.name}</h2>
-                </div>
+                </Link>
             ))}
         </div>
         <UserButton/>

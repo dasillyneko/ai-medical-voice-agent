@@ -1,14 +1,15 @@
 "use client";
 import axios from 'axios';
-import { useParams } from 'next/navigation';
-import React, { useEffect,useState } from 'react'
+import { useParams, useRouter } from 'next/navigation';
+import React, { useEffect,useState, useRef } from 'react'
 import { doctorAgent } from '../../_components/DoctorAgentCard';
 import { Circle, Loader, PhoneCall, PhoneOff } from 'lucide-react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import Vapi from '@vapi-ai/web';
+import { toast } from 'sonner';
 
-type SessionDetail={
+export type SessionDetail={
   id:number,
   notes:string,
   sessionId:string,
@@ -31,18 +32,25 @@ function MedicalVoiceAgent() {
   const [liveTranscript,setLiveTranscript] = useState<string>();
   const [messages,setMessages] = useState<messages[]>([]);
   const [loading,setLoading] = useState(false);
+  const router = useRouter();
+
+  // Store listener functions in refs so we can remove them later
+  const listenersRef = useRef<{
+    onCallStart?: () => void;
+    onCallEnd?: () => void;
+    onMessage?: (message: any) => void;
+    onSpeechStart?: () => void;
+    onSpeechEnd?: () => void;
+  }>({});
 
   useEffect(() => {
-  
-     sessionId && GetSessionDetails();
-    
+    sessionId && GetSessionDetails();
   }, [sessionId]);
 
   const GetSessionDetails=async()=>{
     const result=await axios.get('/api/session-chat?sessionId='+sessionId);
     console.log(result.data);
     setSessionDetail(result.data);
-
   }
 
   const StartCall=()=>{
@@ -58,7 +66,7 @@ function MedicalVoiceAgent() {
       },
       voice:{
         provider:'11labs',
-        voiceId:sessionDetail?.selectedDoctor?.voiceId || '21m00Tcm4TlvDq8ikWAM', // Default voice ID if not specified
+        voiceId:sessionDetail?.selectedDoctor?.voiceId || '21m00Tcm4TlvDq8ikWAM',
       },
       model:{
         provider:'openai',
@@ -70,20 +78,21 @@ function MedicalVoiceAgent() {
             content:sessionDetail?.selectedDoctor?.agentPrompt 
           }
         ]
-
       }
-
     }
-    //@ts-ignore
-    vapi.start(VapiAgentConfig);
-    vapi.on('call-start', () => {console.log('Call started')
-      setCallStarted(true);
-    });
-    vapi.on('call-end', () => {console.log('Call ended')
-      setCallStarted(false);
-    });
 
-    vapi.on('message', (message) => {
+    // Define listener functions
+    const onCallStart = () => {
+      console.log('Call started');
+      setCallStarted(true);
+    };
+
+    const onCallEnd = () => {
+      console.log('Call ended');
+      setCallStarted(false);
+    };
+
+    const onMessage = (message: any) => {
       if (message.type === 'transcript') {
         const {role,transcriptType,transcript} = message;
         console.log(`${message.role}: ${message.transcript}`);
@@ -91,60 +100,110 @@ function MedicalVoiceAgent() {
           setLiveTranscript(transcript);
           setCurrentRoll(role);
         }else if(transcriptType == 'final') {
-          //final transcript
           setMessages((prev:any) => [...prev, { role:role, text: transcript }]);
           setLiveTranscript("");
           setCurrentRoll(null);
         }
       }
-    });
+    };
 
-     vapi.on('speech-start', () => {
+    const onSpeechStart = () => {
       console.log('Assistant started speaking');
       setCurrentRoll('assistant');
-    });
-    vapi.on('speech-end', () => {
+    };
+
+    const onSpeechEnd = () => {
       console.log('Assistant stopped speaking');
       setCurrentRoll('user');
-    });
+    };
 
+    // Store listeners in ref
+    listenersRef.current = {
+      onCallStart,
+      onCallEnd,
+      onMessage,
+      onSpeechStart,
+      onSpeechEnd
+    };
+
+    // Add event listeners
+    vapi.on('call-start', onCallStart);
+    vapi.on('call-end', onCallEnd);
+    vapi.on('message', onMessage);
+    vapi.on('speech-start', onSpeechStart);
+    vapi.on('speech-end', onSpeechEnd);
+
+    //@ts-ignore
+    vapi.start(VapiAgentConfig);
   }
+const endCall = async() => {
+  setLoading(true);
+  if(!vapiInstance) return;
+  
+  console.log('Ending call...');
+  console.log('Messages before ending call:', messages);
+  
+  vapiInstance.stop();
 
-  const endCall = async() => {
-      setLoading(true);
-      if(!vapiInstance)return;
-      console.log('Ending call...');
-      vapiInstance.stop();
-      vapiInstance.off('call-start');
-      vapiInstance.off('call-end');
-      vapiInstance.off('message');
+  // Remove specific listeners using the stored functions
+  const listeners = listenersRef.current;
+  if (listeners.onCallStart) vapiInstance.off('call-start', listeners.onCallStart);
+  if (listeners.onCallEnd) vapiInstance.off('call-end', listeners.onCallEnd);
+  if (listeners.onMessage) vapiInstance.off('message', listeners.onMessage);
+  if (listeners.onSpeechStart) vapiInstance.off('speech-start', listeners.onSpeechStart);
+  if (listeners.onSpeechEnd) vapiInstance.off('speech-end', listeners.onSpeechEnd);
 
-      //reset call state
-      setCallStarted(false);
-      setVapiInstance(null);
+  // Reset state
+  setCallStarted(false);
+  setVapiInstance(null);
+  listenersRef.current = {};
 
-      const result= await GenerateReport();
-      setLoading(false);
-  };
-
-
+  // Wait a bit to ensure all messages are captured, then generate report
+  setTimeout(async () => {
+    console.log('Messages after timeout:', messages);
+    try {
+      const result = await GenerateReport();
+      
+      if (result) {
+        toast.success('Report generated successfully!');
+      } else {
+        toast.warning('No conversation data to generate report');
+      }
+    } catch (error) {
+      console.error('Error generating report:', error);
+      toast.error('Failed to generate report');
+    }
+    
+    setLoading(false);
+    
+    // Navigate to dashboard after report generation completes
+    router.replace('/dashboard');
+  }, 1000);
+};
 
 const GenerateReport = async () => {
   try {
-    console.log('Messages:', messages); // Check if this has content
+    console.log('Generating report with messages:', messages);
+    console.log('Messages count:', messages.length);
+    
+    if (!messages || messages.length === 0) {
+      console.log('No messages to generate report from');
+      return null; // Return null instead of undefined
+    }
+
     const result = await axios.post('/api/medical-report', {
       messages: messages,
       sessionDetail: sessionDetail,
       sessionId: sessionId
     });
-    console.log('Success:', result.data);
+    
+    console.log('Report generated:', result.data);
     return result.data;
   } catch (error) {
-    console.error('Report generation failed:', error);
+    console.error('Error generating report:', error);
+    throw error; // Re-throw to be caught in endCall
   }
 }
-
-
 
   return (
     <div className='p-5 border rounded-3xl bg-secondary'>
@@ -167,7 +226,6 @@ const GenerateReport = async () => {
           {messages?.slice(-4).map((msg:messages,index)=>(
               <h2 className='text-gray-500' key={index}>{msg.role}:{msg.text}</h2>
           ))}
-
 
           {liveTranscript && liveTranscript?.length>0 && <h2 className='text-lg'>{currentRoll}:{liveTranscript}</h2>}
         </div>

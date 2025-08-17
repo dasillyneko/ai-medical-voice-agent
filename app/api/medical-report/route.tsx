@@ -60,6 +60,7 @@ export async function POST(req:NextRequest){
       //Save to DB
       const result=await db.update(SessionChatTable).set({
         report: JSONResp,
+        conversationId: messages,
       }).where(eq(SessionChatTable.sessionId, sessionId));
 
       return NextResponse.json(JSONResp);
