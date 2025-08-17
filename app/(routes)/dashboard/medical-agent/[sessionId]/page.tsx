@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useParams } from 'next/navigation';
 import React, { useEffect,useState } from 'react'
 import { doctorAgent } from '../../_components/DoctorAgentCard';
-import { Circle, PhoneCall, PhoneOff } from 'lucide-react';
+import { Circle, Loader, PhoneCall, PhoneOff } from 'lucide-react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import Vapi from '@vapi-ai/web';
@@ -111,8 +111,8 @@ function MedicalVoiceAgent() {
   }
 
   const endCall = async() => {
-    //setLoading(true);
-    if(!vapiInstance)return;
+      setLoading(true);
+      if(!vapiInstance)return;
       console.log('Ending call...');
       vapiInstance.stop();
       vapiInstance.off('call-start');
@@ -122,21 +122,27 @@ function MedicalVoiceAgent() {
       //reset call state
       setCallStarted(false);
       setVapiInstance(null);
-      const result=await GenerateReport();
-      //setLoading(false);
+
+      const result= await GenerateReport();
+      setLoading(false);
   };
 
 
 
-  const GenerateReport=async ()=>{
-    const result=await axios.post('/api/medical-report',{
-      messages:messages,
-      sessionDetail:sessionDetail,
-      sessionId:sessionId
-    })
-    console.log(result.data);
+const GenerateReport = async () => {
+  try {
+    console.log('Messages:', messages); // Check if this has content
+    const result = await axios.post('/api/medical-report', {
+      messages: messages,
+      sessionDetail: sessionDetail,
+      sessionId: sessionId
+    });
+    console.log('Success:', result.data);
     return result.data;
+  } catch (error) {
+    console.error('Report generation failed:', error);
   }
+}
 
 
 
@@ -165,11 +171,14 @@ function MedicalVoiceAgent() {
 
           {liveTranscript && liveTranscript?.length>0 && <h2 className='text-lg'>{currentRoll}:{liveTranscript}</h2>}
         </div>
-        {!callStarted?<Button className='mt-20' onClick={StartCall}>
-          <PhoneCall/>Start Call</Button>
-          :<Button variant={'destructive'} onClick={endCall}>
-          <PhoneOff/>End Call</Button>
-        }
+
+        {!callStarted ? (
+          <Button className='mt-20' onClick={StartCall}  disabled={loading}>
+            {loading?<Loader className='animate-spin h-4 w-4 mr-2' />:<PhoneCall/>}Start Call</Button>
+        ):(
+          <Button variant={'destructive'} onClick={endCall}  disabled={loading}>
+           {loading?<Loader className='animate-spin h-4 w-4 mr-2' />:<PhoneOff/>}End Call</Button>
+        )}
       </div>}
     </div>
   )
